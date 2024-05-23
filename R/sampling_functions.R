@@ -16,6 +16,11 @@
 #'   in metres that a sample line will extend either side of a back-burning
 #'   line.
 #'
+#' @param stop_if_returning (logical) If \code{TRUE} (default), each sample line
+#'   must be moving away from its associated back-burning line along its whole
+#'   length. This is intended to avoid cases where a sample line approaches or
+#'   crosses another section of a wiggly back-burning line.
+#'
 #' @param smoothing_bw A single numeric value for the bandwidth (metres) of the
 #'   Gaussian kernel filter used to smooth each back-burning feature. The
 #'   default value of 1000m seems to give good results.
@@ -28,11 +33,16 @@ make_sampling_lines <- function(bb_lines,
                                 bb_id = "OID",
                                 step_length = 500,
                                 sample_length = 5000,
+                                stop_if_returning = TRUE,
                                 smoothing_bw = 1000) {
 
-  checkmate::assert_number(step_length, finite = TRUE, lower = 1)
-  checkmate::assert_number(sample_length, finite = TRUE, lower = 1)
-  checkmate::assert_number(smoothing_bw, finite = TRUE, lower = 1)
+  checkmate::assert_class(bb_lines, "sf")
+
+  CRS <- sf::st_crs(bb_lines)
+  if (is.na(CRS)) stop("A cooordinate reference system must be set for the back-burning line features")
+
+  x <- CRS$units
+  if (is.null(x) || x != "m") stop("Map units for back-burning line features must be metres")
 
   checkmate::assert_string(bb_id, min.chars = 1)
   if (!bb_id %in% colnames(bb_lines)) {
@@ -40,11 +50,12 @@ make_sampling_lines <- function(bb_lines,
     stop(msg)
   }
 
-  CRS <- sf::st_crs(bb_lines)
-  if (is.na(CRS)) stop("A cooordinate reference system is required for the lines")
+  checkmate::assert_number(step_length, finite = TRUE, lower = 1)
+  checkmate::assert_number(sample_length, finite = TRUE, lower = 1)
 
-  u <- CRS$units
-  if (is.null(u) || u != "m") stop("Map units for line features must be metres")
+  checkmate::assert_flag(stop_if_returning)
+
+  checkmate::assert_number(smoothing_bw, finite = TRUE, lower = 1)
 
   res <- lapply(seq_len(nrow(bb_lines)), function(index) {
     # Get the line feature and densify its vertices
@@ -65,12 +76,12 @@ make_sampling_lines <- function(bb_lines,
     d <- sapply( seq_len(nrow(vs)-1), function(k) sqrt(sum((vs[k,] - vs[k+1,])^2)) )
     d <- c(0, cumsum(d))
 
-    if (max(d) < step_distance) {
+    if (max(d) < step_length) {
       # This feature is too short
       return(NULL)
     }
 
-    isteps <- floor(d / step_distance)
+    isteps <- floor(d / step_length)
     step_points <- match(seq_len(max(isteps)), isteps)
 
     # Guard against hitting the very end of the line (unlikely but possible)
@@ -98,14 +109,14 @@ make_sampling_lines <- function(bb_lines,
       inear <- which.min(pnear)
 
       ibefore <- max(inear-1, 1)
-      p0 <- st_coordinates(gsmooth_points[ibefore])[, 1:2]
+      p0 <- sf::st_coordinates(gsmooth_points[ibefore])[, 1:2]
 
       iafter <- min(inear+1, length(gsmooth_points))
-      p1 <- st_coordinates(gsmooth_points[iafter])[, 1:2]
+      p1 <- sf::st_coordinates(gsmooth_points[iafter])[, 1:2]
 
       dxy <- p1 - p0
       len <- sqrt(sum(dxy^2))
-      lenfac <- norm_len / len
+      lenfac <- sample_length / len
 
       pnorm1 <- vstep + c(dxy[2], -dxy[1]) * lenfac
       pnorm2 <- vstep + c(-dxy[2], dxy[1]) * lenfac
