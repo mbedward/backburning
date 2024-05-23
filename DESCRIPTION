@@ -1,0 +1,22 @@
+Package: backburning
+Type: Package
+Title: What the Package Does (Title Case)
+Version: 0.1.0
+Description: More about what it does (maybe more than one line)
+    Use four spaces when indenting paragraphs within the Description.
+License: What license is it under?
+Authors@R: c(
+    person("Michael", "Bedward", email = "mbedward@uow.edu.au", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-9986-1286")),
+    person("Owen", "Price", email = "oprice@uow.edu.au", role = "aut"),
+    person("Michael", "Storey", email = "mstorey@uow.edu.au", role = "aut"),
+    person("Michael", "Storey", email = "mstorey@uow.edu.au", role = "aut"),
+    person("Maximilien", "Desservettaz", email = "mdesserv@uow.edu.au", role = "aut"))
+Depends: R (>= 4.0.0)
+Encoding: UTF-8
+LazyData: true
+Imports: 
+    checkmate (>= 2.3.1),
+    sf (>= 1.0-16),
+    smoothr (>= 1.0.1)
+RoxygenNote: 7.3.1
