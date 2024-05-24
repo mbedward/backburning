@@ -16,10 +16,10 @@
 #'   in metres that a sample line will extend either side of a back-burning
 #'   line.
 #'
-#' @param stop_if_returning (logical) If \code{TRUE} (default), each sample line
-#'   must be moving away from its associated back-burning line along its whole
-#'   length. This is intended to avoid cases where a sample line approaches or
-#'   crosses another section of a wiggly back-burning line.
+#' @param increasing_distance (logical) If \code{TRUE} (default), there must
+#'   always be an increasing distance to the parent back-burning line along the
+#'   length of each sample line. A sampling lines will be truncated if necessary
+#'   to avoid approaching or crossing another section of the back-burning line.
 #'
 #' @param smoothing_bw A single numeric value for the bandwidth (metres) of the
 #'   Gaussian kernel filter used to smooth each back-burning feature. The
@@ -33,7 +33,7 @@ make_sampling_lines <- function(bb_lines,
                                 bb_id = "OID",
                                 step_length = 500,
                                 sample_length = 5000,
-                                stop_if_returning = TRUE,
+                                increasing_distance = TRUE,
                                 smoothing_bw = 1000) {
 
   checkmate::assert_class(bb_lines, "sf")
@@ -53,11 +53,14 @@ make_sampling_lines <- function(bb_lines,
   checkmate::assert_number(step_length, finite = TRUE, lower = 1)
   checkmate::assert_number(sample_length, finite = TRUE, lower = 1)
 
-  checkmate::assert_flag(stop_if_returning)
+  checkmate::assert_flag(increasing_distance)
 
   checkmate::assert_number(smoothing_bw, finite = TRUE, lower = 1)
 
   res <- lapply(seq_len(nrow(bb_lines)), function(index) {
+    # Get the identifier for this line feature
+    FeatureID <- bb_lines[[bb_id]][index]
+
     # Get the line feature and densify its vertices
     g <- sf::st_geometry(bb_lines[index, ])
 
@@ -65,54 +68,67 @@ make_sampling_lines <- function(bb_lines,
     gsmooth <- smoothr::smooth(g, method = "ksmooth", bandwidth = smoothing_bw)
 
     # Densify the vertices of the original and smoothed features
-    g <- smoothr::smooth(g, method = "densify", max_distance = 1)
-    gsmooth <- smoothr::smooth(gsmooth, method = "densify", max_distance = 1)
+    VertexDistance <- 1.0
+    g <- smoothr::smooth(g, method = "densify", max_distance = VertexDistance)
+    gsmooth <- smoothr::smooth(gsmooth, method = "densify", max_distance = VertexDistance)
 
     # Convert the smoothed feature to a point set. This makes querying the step
     # points a little easier.
-    gsmooth_points <- sf::st_cast(gsmooth, "POINT")
+    #gsmooth_points <- sf::st_cast(gsmooth, "POINT")
+    gsmooth_vertices <- sf::st_coordinates(gsmooth)[, 1:2]
 
     vs <- sf::st_coordinates(g)[, 1:2]
     d <- sapply( seq_len(nrow(vs)-1), function(k) sqrt(sum((vs[k,] - vs[k+1,])^2)) )
     d <- c(0, cumsum(d))
 
-    if (max(d) < step_length) {
-      # This feature is too short
-      return(NULL)
-    }
+    # Locate the vertex closest to the middle of the feature
+    dmax <- max(d)
+    imid <- which.min( abs(d - dmax/2) )
 
-    isteps <- floor(d / step_length)
-    step_points <- match(seq_len(max(isteps)), isteps)
-
-    # Guard against hitting the very end of the line (unlikely but possible)
-    nsteps <- length(step_points)
-    if (step_points[nsteps] == length(d)) {
-      step_points <- step_points[-nsteps]
-      nsteps <- nsteps - 1
-
-      if (nsteps == 0) {  # line feature was too short for step distance
-        return(NULL)
+    # It's just a jump to the left...
+    step_points <- icur <- imid
+    repeat {
+      dtarget <- d[icur] - step_length
+      if (dtarget > step_length/2 + VertexDistance) {
+        icur <- which.min(abs(d - dtarget))
+        step_points <- c(step_points, icur)
+      } else {
+        break
       }
     }
 
+    # And then a jump to the right...
+    icur <- imid
+    repeat {
+      dtarget <- d[icur] + step_length
+      if (dtarget < dmax - (step_length/2 + VertexDistance)) {
+        icur <- which.min(abs(d - dtarget))
+        step_points <- c(step_points, icur)
+      } else {
+        break
+      }
+    }
     step_vertices <- vs[step_points, , drop=FALSE]
 
-    norms <- lapply(seq_len(length(step_points)), function(k) {
+    sample_lines <- lapply(seq_len(length(step_points)), function(k) {
       vstep <- step_vertices[k, ]
 
-      pstep <- sf::st_point(vstep) |>
-        sf::st_sfc(crs = CRS)
+      # pstep <- sf::st_point(vstep) |>
+      #   sf::st_sfc(crs = CRS)
 
       # Use the nearest vertices from the smoothed line feature
       # to set the angle of the normal vector at the current step.
-      pnear <- sf::st_distance(pstep, gsmooth_points)
-      inear <- which.min(pnear)
+
+      #pnear <- sf::st_distance(pstep, gsmooth_points)
+      #inear <- which.min(pnear)
+      dsmooth2 <- apply(gsmooth_vertices, 1, function(vxy) sum((vxy - vstep)^2))
+      inear <- which.min(dsmooth2)
 
       ibefore <- max(inear-1, 1)
-      p0 <- sf::st_coordinates(gsmooth_points[ibefore])[, 1:2]
+      p0 <- gsmooth_vertices[ibefore, ]
 
-      iafter <- min(inear+1, length(gsmooth_points))
-      p1 <- sf::st_coordinates(gsmooth_points[iafter])[, 1:2]
+      iafter <- min(inear+1, nrow(gsmooth_vertices))
+      p1 <- gsmooth_vertices[iafter, ]
 
       dxy <- p1 - p0
       len <- sqrt(sum(dxy^2))
@@ -127,9 +143,16 @@ make_sampling_lines <- function(bb_lines,
       sf::st_sfc(l1, l2, crs = CRS)
     })
 
-    g <- do.call(c, norms)
-    sf::st_sf(index = index, geom = g)
+    g <- do.call(c, sample_lines)
+    sf::st_sf(featureid__ = FeatureID, geom = g)
   })
 
-  do.call(rbind, res)
+  # Combine sets of sample lines into a single sf data frame
+  res <- do.call(rbind, res)
+
+  # Rename feature ID column and return
+  k <- which(colnames(res) == "featureid__")
+  colnames(res)[k] <- bb_id
+
+  res
 }

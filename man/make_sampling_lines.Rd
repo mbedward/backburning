@@ -9,7 +9,7 @@ make_sampling_lines(
   bb_id = "OID",
   step_length = 500,
   sample_length = 5000,
-  stop_if_returning = TRUE,
+  increasing_distance = TRUE,
   smoothing_bw = 1000
 )
 }
@@ -30,10 +30,10 @@ between sampling lines along each back-burning line feature.}
 in metres that a sample line will extend either side of a back-burning
 line.}
 
-\item{stop_if_returning}{(logical) If \code{TRUE} (default), each sample line
-must be moving away from its associated back-burning line along its whole
-length. This is intended to avoid cases where a sample line approaches or
-crosses another section of a wiggly back-burning line.}
+\item{increasing_distance}{(logical) If \code{TRUE} (default), there must
+always be an increasing distance to the parent back-burning line along the
+length of each sample line. A sampling lines will be truncated if necessary
+to avoid approaching or crossing another section of the back-burning line.}
 
 \item{smoothing_bw}{A single numeric value for the bandwidth (metres) of the
 Gaussian kernel filter used to smooth each back-burning feature. The
