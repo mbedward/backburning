@@ -1,4 +1,22 @@
-#' Generate sampling lines along one or more back-burning line features
+#' Generate linear sample points either side of back-burning line features
+#'
+#' Given a set of input line features representing back-burning lines, this
+#' function places sampling lines at regular intervals along each input feature
+#' and then generates uniformly spaced points along each sampling line. Each
+#' sampling line is placed perpendicular to the local angle of the back-burning
+#' line. Local angles are determined from a smoothed version of the back-burning
+#' line to minimize the influence of any local kinks and turns. At each sampling
+#' line, a sample point is located where the line intersects the back-burning
+#' line, then further points are placed along the line with uniform spacing. In
+#' cases where a back-burning line is curved or convoluted it is possible for
+#' sampling lines from one section to approach or cross other sections. Setting
+#' the argument \code{increasing_distance} to \code{TRUE} (the default) will
+#' test for such cases and prune sampling lines as required. However, this can
+#' result in different numbers of sample points per line being returned.
+#'
+#' This function calls the non-exported helper function
+#' \code{make_sample_lines()} to generate the sample lines along which the
+#' sample points will be placed.
 #'
 #' @param bb_lines An \code{sf} spatial data frame containing one or more line
 #'   features representing back-burning lines. The data must have a coordinate
@@ -9,17 +27,91 @@
 #'   \code{bb_lines} data frame that uniquely identifies back-burning line
 #'   features.
 #'
-#' @param step_length A single numeric value for the distance in metres
+#' @param line_spacing A single numeric value for the distance in metres
 #'   between sampling lines along each back-burning line feature.
 #'
-#' @param sample_length A single numeric value specifying the maximum distance
-#'   in metres that a sample line will extend either side of a back-burning
-#'   line.
+#' @param line_half_length A single numeric value specifying the maximum
+#'   distance in metres that a sampling line will extend on either side of the
+#'   back-burning line.
+#'
+#' @param point_spacing A single numeric value specifying the uniform distance between
+#'   sample points along each sampling line. The first point is always positioned
+#'   at the intersection of the sampling line and the parent back-burning line.
 #'
 #' @param increasing_distance (logical) If \code{TRUE} (default), there must
 #'   always be an increasing distance to the parent back-burning line along the
-#'   length of each sample line. A sampling lines will be truncated if necessary
+#'   length of each sampling line. A sampling lines will be truncated if necessary
 #'   to avoid approaching or crossing another section of the back-burning line.
+#'
+#' @param smoothing_bw A single numeric value for the bandwidth (metres) of the
+#'   Gaussian kernel filter used to smooth each back-burning feature. The
+#'   default value of 1000m seems to give good results.
+#'
+#' @return An \code{sf} spatial data frame containing the sampling lines
+#'
+#' @examples
+#' \dontrun{
+#' libary(backburning)
+#' library(sf)
+#'
+#' # Load back-burning line features from a GeoPackage layer, shapefile etc.
+#' bb <- st_read(...)
+#'
+#' # Generate points on sampling lines placed at 1km intervals along each
+#' # back-burning line. Sampling lines extend 5km either side of the back-burning
+#' # line and points are placed every 500m.
+#' #
+#' bb_pts <- make_sample_points(bb, line_spacing = 1000, line_half_length = 5000, point_spacing = 500)
+#' }
+#'
+#' @export
+#
+make_sample_points <- function(bb_lines,
+                               bb_id = "OID",
+                               line_spacing,
+                               line_half_length,
+                               point_spacing,
+                               increasing_distance = TRUE,
+                               smoothing_bw = 1000) {
+
+
+  # Call the helper function to generate the sampling lines.
+  # This also checks for a valid CRS and other things.
+  #
+  dat_sample_lines <- make_sample_lines(bb_lines,
+                                        bb_id = bb_id,
+                                        line_spacing = line_spacing,
+                                        line_half_length = line_half_length,
+                                        smoothing_bw = smoothing_bw)
+
+  stop("WRITE ME!")
+}
+
+
+#' Private helper function to generate sampling lines along back-burning line features
+#'
+#' This is a helper function called by \code{make_sample_points()}. Given a set
+#' of input line features representing back-burning lines, this function places
+#' sampling lines at regular intervals along each input feature. Each sampling
+#' line is placed perpendicular to the local angle of the back-burning line.
+#' Local angles are determined from a smoothed version of the back-burning line
+#' to minimize the influence of any local kinks and turns.
+#'
+#' @param bb_lines An \code{sf} spatial data frame containing one or more line
+#'   features representing back-burning lines. The data must have a coordinate
+#'   reference system defined with metres as map units (e.g. NSW Lambert/GDA94
+#'   EPSG:3308).
+#'
+#' @param bb_id (character; default "OID") The name of a column in the
+#'   \code{bb_lines} data frame that uniquely identifies back-burning line
+#'   features.
+#'
+#' @param line_spacing A single numeric value for the distance in metres
+#'   between sampling lines along each back-burning line feature.
+#'
+#' @param line_half_length A single numeric value specifying the maximum
+#'   distance in metres that a sampling line will extend on either side of the
+#'   back-burning line.
 #'
 #' @param smoothing_bw A single numeric value for the bandwidth (metres) of the
 #'   Gaussian kernel filter used to smooth each back-burning feature. The
@@ -27,14 +119,15 @@
 #'
 #' @return An \code{sf} spatial data frame containing the sampling lines.
 #'
-#' @export
+#' @seealso [make_sample_points()]
+#'
+#' @noRd
 #
-make_sampling_lines <- function(bb_lines,
-                                bb_id = "OID",
-                                step_length = 500,
-                                sample_length = 5000,
-                                increasing_distance = TRUE,
-                                smoothing_bw = 1000) {
+make_sample_lines <- function(bb_lines,
+                              bb_id = "OID",
+                              line_spacing = 500,
+                              line_half_length = 5000,
+                              smoothing_bw = 1000) {
 
   checkmate::assert_class(bb_lines, "sf")
 
@@ -50,10 +143,8 @@ make_sampling_lines <- function(bb_lines,
     stop(msg)
   }
 
-  checkmate::assert_number(step_length, finite = TRUE, lower = 1)
-  checkmate::assert_number(sample_length, finite = TRUE, lower = 1)
-
-  checkmate::assert_flag(increasing_distance)
+  checkmate::assert_number(line_spacing, finite = TRUE, lower = 1)
+  checkmate::assert_number(line_half_length, finite = TRUE, lower = 1)
 
   checkmate::assert_number(smoothing_bw, finite = TRUE, lower = 1)
 
@@ -88,8 +179,8 @@ make_sampling_lines <- function(bb_lines,
     # It's just a jump to the left...
     step_points <- icur <- imid
     repeat {
-      dtarget <- d[icur] - step_length
-      if (dtarget > step_length/2 + VertexDistance) {
+      dtarget <- d[icur] - line_spacing
+      if (dtarget > line_spacing/2 + VertexDistance) {
         icur <- which.min(abs(d - dtarget))
         step_points <- c(step_points, icur)
       } else {
@@ -100,8 +191,8 @@ make_sampling_lines <- function(bb_lines,
     # And then a jump to the right...
     icur <- imid
     repeat {
-      dtarget <- d[icur] + step_length
-      if (dtarget < dmax - (step_length/2 + VertexDistance)) {
+      dtarget <- d[icur] + line_spacing
+      if (dtarget < dmax - (line_spacing/2 + VertexDistance)) {
         icur <- which.min(abs(d - dtarget))
         step_points <- c(step_points, icur)
       } else {
@@ -132,7 +223,7 @@ make_sampling_lines <- function(bb_lines,
 
       dxy <- p1 - p0
       len <- sqrt(sum(dxy^2))
-      lenfac <- sample_length / len
+      lenfac <- line_half_length / len
 
       pnorm1 <- vstep + c(dxy[2], -dxy[1]) * lenfac
       pnorm2 <- vstep + c(-dxy[2], dxy[1]) * lenfac
@@ -147,7 +238,7 @@ make_sampling_lines <- function(bb_lines,
     sf::st_sf(featureid__ = FeatureID, geom = g)
   })
 
-  # Combine sets of sample lines into a single sf data frame
+  # Combine sets of sampling lines into a single sf data frame
   res <- do.call(rbind, res)
 
   # Rename feature ID column and return
