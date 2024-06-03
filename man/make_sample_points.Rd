@@ -45,7 +45,9 @@ Gaussian kernel filter used to smooth each back-burning feature. The
 default value of 1000m seems to give good results.}
 }
 \value{
-An \code{sf} spatial data frame containing the sampling lines
+An \code{sf} spatial data frame containing the sampling lines. Each
+  line is represented by a pair of features on either side of the
+  back-burning line.
 }
 \description{
 Given a set of input line features representing back-burning lines, this

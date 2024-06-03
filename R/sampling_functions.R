@@ -47,7 +47,9 @@
 #'   Gaussian kernel filter used to smooth each back-burning feature. The
 #'   default value of 1000m seems to give good results.
 #'
-#' @return An \code{sf} spatial data frame containing the sampling lines
+#' @return An \code{sf} spatial data frame containing the sampling lines. Each
+#'   line is represented by a pair of features on either side of the
+#'   back-burning line.
 #'
 #' @examples
 #' \dontrun{
@@ -74,9 +76,13 @@ make_sample_points <- function(bb_lines,
                                increasing_distance = TRUE,
                                smoothing_bw = 1000) {
 
+  # Most argument checking will be done by the helper line function.
+  # Here we just validate the arguments specific to points.
+  #
+  checkmate::assert_number(point_spacing, lower = 1, finite = TRUE)
+  checkmate::assert_flag(increasing_distance)
 
-  # Call the helper function to generate the sampling lines.
-  # This also checks for a valid CRS and other things.
+  # Generate sample lines (also checks other arguments)
   #
   dat_sample_lines <- make_sample_lines(bb_lines,
                                         bb_id = bb_id,
@@ -117,7 +123,10 @@ make_sample_points <- function(bb_lines,
 #'   Gaussian kernel filter used to smooth each back-burning feature. The
 #'   default value of 1000m seems to give good results.
 #'
-#' @return An \code{sf} spatial data frame containing the sampling lines.
+#' @return An \code{sf} spatial data frame containing the sampling lines. Each
+#'   line is represented by a pair of features on either side of the
+#'   back-burning line, with values of \code{'L'} (left) and \code{'R'} (right)
+#'   in the \code{'segment'} column.
 #'
 #' @seealso [make_sample_points()]
 #'
@@ -231,11 +240,11 @@ make_sample_lines <- function(bb_lines,
       l1 <- sf::st_linestring(rbind(pnorm1, vstep))
       l2 <- sf::st_linestring(rbind(vstep, pnorm2))
 
-      sf::st_sfc(l1, l2, crs = CRS)
+      segments <- sf::st_sfc(l1, l2, crs = CRS)
+      sf::st_sf(featureid__ = FeatureID, segment = c('L', 'R'), geom = segments)
     })
 
-    g <- do.call(c, sample_lines)
-    sf::st_sf(featureid__ = FeatureID, geom = g)
+    do.call(rbind, sample_lines)
   })
 
   # Combine sets of sampling lines into a single sf data frame
