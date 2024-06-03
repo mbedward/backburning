@@ -124,9 +124,11 @@ make_sample_points <- function(bb_lines,
 #'   default value of 1000m seems to give good results.
 #'
 #' @return An \code{sf} spatial data frame containing the sampling lines. Each
-#'   line is represented by a pair of features on either side of the
-#'   back-burning line, with values of \code{'L'} (left) and \code{'R'} (right)
-#'   in the \code{'segment'} column.
+#'   line is represented by a pair of segments, one on either side of the
+#'   back-burning line. Segments are labelled as \code{'L'} (left) and
+#'   \code{'R'} (right) in the \code{'segment'} column. These labels are
+#'   relative to the order of vertices (i.e. digitizing direction) of the
+#'   back-burning line.
 #'
 #' @seealso [make_sample_points()]
 #'
@@ -234,8 +236,10 @@ make_sample_lines <- function(bb_lines,
       left_seg <- sf::st_linestring(rbind(vcur, pnorm1))
       right_seg <- sf::st_linestring(rbind(vcur, pnorm2))
 
+      # Geom list with the two line segments, labelled 'R' (right) and
+      # 'L' (left) relative to the order of vertices of the target feature
       segments <- sf::st_sfc(left_seg, right_seg, crs = CRS)
-      sf::st_sf(featureid__ = FeatureID, segment = c('L', 'R'), geom = segments)
+      sf::st_sf(featureid__ = FeatureID, segment = c('R', 'L'), geom = segments)
     })
 
     do.call(rbind, sample_lines)
