@@ -211,17 +211,11 @@ make_sample_lines <- function(bb_lines,
     step_vertices <- vs[step_points, , drop=FALSE]
 
     sample_lines <- lapply(seq_len(length(step_points)), function(k) {
-      vstep <- step_vertices[k, ]
-
-      # pstep <- sf::st_point(vstep) |>
-      #   sf::st_sfc(crs = CRS)
+      vcur <- step_vertices[k, ]
 
       # Use the nearest vertices from the smoothed line feature
       # to set the angle of the normal vector at the current step.
-
-      #pnear <- sf::st_distance(pstep, gsmooth_points)
-      #inear <- which.min(pnear)
-      dsmooth2 <- apply(gsmooth_vertices, 1, function(vxy) sum((vxy - vstep)^2))
+      dsmooth2 <- apply(gsmooth_vertices, 1, function(vxy) sum((vxy - vcur)^2))
       inear <- which.min(dsmooth2)
 
       ibefore <- max(inear-1, 1)
@@ -234,13 +228,13 @@ make_sample_lines <- function(bb_lines,
       len <- sqrt(sum(dxy^2))
       lenfac <- line_half_length / len
 
-      pnorm1 <- vstep + c(dxy[2], -dxy[1]) * lenfac
-      pnorm2 <- vstep + c(-dxy[2], dxy[1]) * lenfac
+      pnorm1 <- vcur + c(dxy[2], -dxy[1]) * lenfac
+      pnorm2 <- vcur + c(-dxy[2], dxy[1]) * lenfac
 
-      l1 <- sf::st_linestring(rbind(pnorm1, vstep))
-      l2 <- sf::st_linestring(rbind(vstep, pnorm2))
+      left_seg <- sf::st_linestring(rbind(vcur, pnorm1))
+      right_seg <- sf::st_linestring(rbind(vcur, pnorm2))
 
-      segments <- sf::st_sfc(l1, l2, crs = CRS)
+      segments <- sf::st_sfc(left_seg, right_seg, crs = CRS)
       sf::st_sf(featureid__ = FeatureID, segment = c('L', 'R'), geom = segments)
     })
 
