@@ -31,14 +31,16 @@ between sampling lines along each back-burning line feature.}
 distance in metres that a sampling line will extend on either side of the
 back-burning line.}
 
-\item{point_spacing}{A single numeric value specifying the uniform distance between
-sample points along each sampling line. The first point is always positioned
-at the intersection of the sampling line and the parent back-burning line.}
+\item{point_spacing}{A single numeric value specifying the uniform distance
+between sample points along each sampling line. The first point is always
+positioned at the intersection of the sampling line and the reference
+back-burning line.}
 
 \item{increasing_distance}{(logical) If \code{TRUE} (default), there must
-always be an increasing distance to the parent back-burning line along the
-length of each sampling line. A sampling lines will be truncated if necessary
-to avoid approaching or crossing another section of the back-burning line.}
+always be an increasing distance to the reference back-burning line along
+the length of each sampling line. A sampling lines will be truncated if
+necessary to avoid approaching or crossing another section of the
+back-burning line.}
 
 \item{smoothing_bw}{A single numeric value for the bandwidth (metres) of the
 Gaussian kernel filter used to smooth each back-burning feature. The

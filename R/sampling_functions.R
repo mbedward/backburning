@@ -34,14 +34,16 @@
 #'   distance in metres that a sampling line will extend on either side of the
 #'   back-burning line.
 #'
-#' @param point_spacing A single numeric value specifying the uniform distance between
-#'   sample points along each sampling line. The first point is always positioned
-#'   at the intersection of the sampling line and the parent back-burning line.
+#' @param point_spacing A single numeric value specifying the uniform distance
+#'   between sample points along each sampling line. The first point is always
+#'   positioned at the intersection of the sampling line and the reference
+#'   back-burning line.
 #'
 #' @param increasing_distance (logical) If \code{TRUE} (default), there must
-#'   always be an increasing distance to the parent back-burning line along the
-#'   length of each sampling line. A sampling lines will be truncated if necessary
-#'   to avoid approaching or crossing another section of the back-burning line.
+#'   always be an increasing distance to the reference back-burning line along
+#'   the length of each sampling line. A sampling lines will be truncated if
+#'   necessary to avoid approaching or crossing another section of the
+#'   back-burning line.
 #'
 #' @param smoothing_bw A single numeric value for the bandwidth (metres) of the
 #'   Gaussian kernel filter used to smooth each back-burning feature. The
@@ -82,7 +84,7 @@ make_sample_points <- function(bb_lines,
   checkmate::assert_number(point_spacing, lower = 1, finite = TRUE)
   checkmate::assert_flag(increasing_distance)
 
-  # Generate sample lines (also checks other arguments)
+  # Generate sample lines (this step will also check other argument values)
   #
   dat_sample_lines <- make_sample_lines(bb_lines,
                                         bb_id = bb_id,
@@ -90,7 +92,50 @@ make_sample_points <- function(bb_lines,
                                         line_half_length = line_half_length,
                                         smoothing_bw = smoothing_bw)
 
-  stop("WRITE ME!")
+  # Generate points on each sample line by placing a point at the
+  # intersection with the back-burning line (the start vertex
+  # of each sample line segment) then subsequent points along each
+  # segment.
+  #
+  # Point positions expressed as fractions of line segment length
+  seg_len <- attr(dat_sample_lines, "segment_length")
+  dpos <- seq(0, 1, point_spacing / seg_len)
+
+  # This will return a geometry list of MULTIPOINT objects: one per line segment
+  gpoints <- sf::st_line_sample(dat_sample_lines, sample = dpos)
+
+  # Attribute points with back-burning feature ID and sample line values
+  dat_points <- dat_sample_lines
+  sf::st_geometry(dat_points) <- gpoints
+
+  # Convert from multi-point to single point features
+  dat_points <- suppressWarnings({
+    st_cast(dat_points, "POINT")
+  })
+
+  # For the point where each pair of sample line segments intersect
+  # the back-burning line feature, drop the duplicate record and
+  # label the remaining record as 'X'
+  dat_points <- dat_points %>%
+    dplyr::group_by(across(all_of(c(bb_id, 'index', 'segment')))) %>% # Truly horrible syntax but it seems to work...
+    dplyr::mutate(point_index = dplyr::row_number()) %>%
+    dplyr::ungroup() %>%
+
+    dplyr::filter(segment == 'R' | point_index > 1) %>%
+    dplyr::mutate(segment = ifelse(point_index == 1, "X", segment)) %>%
+    dplyr::select(-point_index)
+
+  # Calculate the distance of each point from its reference back-burning line
+  IDs <- unique(bb_lines[[bb_id]])
+  dat_points_dist <- lapply(IDs, function(id) {
+    ibb <- which(bb_lines[[bb_id]] == id)
+    ip <- which(dat_points[[bb_id]] == id)
+    d <- as.numeric( sf::st_distance(dat_points[ip, ], bb_lines[ibb, ]) )
+    d <- zapsmall(d)
+    cbind(dat_points[ip, ], distance = d)
+  })
+
+  do.call(rbind, dat_points_dist)
 }
 
 
@@ -128,7 +173,9 @@ make_sample_points <- function(bb_lines,
 #'   back-burning line. Segments are labelled as \code{'L'} (left) and
 #'   \code{'R'} (right) in the \code{'segment'} column. These labels are
 #'   relative to the order of vertices (i.e. digitizing direction) of the
-#'   back-burning line.
+#'   back-burning line. Data frame columns are: back-burning line ID (name is
+#'   the value of the \code{bb_id} argument); index (integer ID for each
+#'   sample line); segment; geom.
 #'
 #' @seealso [make_sample_points()]
 #'
@@ -199,7 +246,7 @@ make_sample_lines <- function(bb_lines,
       }
     }
 
-    # And then a jump to the right...
+    # ...and then a jump to the right
     icur <- imid
     repeat {
       dtarget <- d[icur] + line_spacing
@@ -210,10 +257,15 @@ make_sample_lines <- function(bb_lines,
         break
       }
     }
+
+    # Get step vertices, ordered by the direction of back-burning line vertices
+    step_points <- sort(step_points)
     step_vertices <- vs[step_points, , drop=FALSE]
 
-    sample_lines <- lapply(seq_len(length(step_points)), function(k) {
-      vcur <- step_vertices[k, ]
+    # Create the pair of sample line segments at each step vertex, either side
+    # of the back-burning line
+    sample_lines <- lapply(seq_len(length(step_points)), function(istep) {
+      vcur <- step_vertices[istep, ]
 
       # Use the nearest vertices from the smoothed line feature
       # to set the angle of the normal vector at the current step.
@@ -239,7 +291,7 @@ make_sample_lines <- function(bb_lines,
       # Geom list with the two line segments, labelled 'R' (right) and
       # 'L' (left) relative to the order of vertices of the target feature
       segments <- sf::st_sfc(left_seg, right_seg, crs = CRS)
-      sf::st_sf(featureid__ = FeatureID, segment = c('R', 'L'), geom = segments)
+      sf::st_sf(featureid__ = FeatureID, index = istep, segment = c('R', 'L'), geom = segments)
     })
 
     do.call(rbind, sample_lines)
@@ -248,9 +300,15 @@ make_sample_lines <- function(bb_lines,
   # Combine sets of sampling lines into a single sf data frame
   res <- do.call(rbind, res)
 
-  # Rename feature ID column and return
+  # Rename feature ID column
+  # (for client code use)
   k <- which(colnames(res) == "featureid__")
   colnames(res)[k] <- bb_id
 
+  # Attributes for client code use
+  attr(res, "bb_id") <- bb_id
+  attr(res, "segment_length") <- line_half_length
+
+  # Return sample lines
   res
 }
