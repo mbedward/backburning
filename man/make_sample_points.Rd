@@ -2,7 +2,7 @@
 % Please edit documentation in R/sampling_functions.R
 \name{make_sample_points}
 \alias{make_sample_points}
-\title{Generate linear sample points either side of back-burning line features}
+\title{Generate lines of sample points across back-burning line features}
 \usage{
 make_sample_points(
   bb_lines,
@@ -47,29 +47,51 @@ Gaussian kernel filter used to smooth each back-burning feature. The
 default value of 1000m seems to give good results.}
 }
 \value{
-An \code{sf} spatial data frame containing the sampling lines. Each
-  line is represented by a pair of features on either side of the
-  back-burning line.
+An \code{sf} spatial data frame of sample point features with the
+  following columns:
+
+  \code{refid} Identifier of the input back-burning line feature that a point
+  is sampling, with values taken from the input data column specified by the
+  \code{bb_id} argument.
+
+  \code{index} Integer index (from 1) of the perpendicular sample line on
+  which the point was positioned.
+
+  \code{segment} One of \code{'X'} (point at intersection with back-burning
+  line); \code{'L'} (point on left of line); \code{'R'} (point on right of
+  line). Note that left and right are relative to the digitizing direction
+  (i.e. order of vertices) of the back-burning line.
+
+  \code{linedist} Distance of the point along the sample line segment on
+  which it was positioned, relative to the reference back-burning line.
+
+  \code{refdist} Shortest distance from the point to the reference
+  back-burning line. This can be less than \code{linedist} when the reference
+  line is wiggly.
+
+  \code{geom} Point geometry, projected in the same coordinate reference
+  system as the input line features.
 }
 \description{
 Given a set of input line features representing back-burning lines, this
-function places sampling lines at regular intervals along each input feature
-and then generates uniformly spaced points along each sampling line. Each
-sampling line is placed perpendicular to the local angle of the back-burning
-line. Local angles are determined from a smoothed version of the back-burning
-line to minimize the influence of any local kinks and turns. At each sampling
-line, a sample point is located where the line intersects the back-burning
-line, then further points are placed along the line with uniform spacing. In
-cases where a back-burning line is curved or convoluted it is possible for
-sampling lines from one section to approach or cross other sections. Setting
-the argument \code{increasing_distance} to \code{TRUE} (the default) will
-test for such cases and prune sampling lines as required. However, this can
-result in different numbers of sample points per line being returned.
+function places sample lines at regular intervals along each input feature,
+perpendicular to the local feature angle, and then generates uniformly spaced
+points along each sample line. Local angles are determined from a smoothed
+version of the back-burning line to minimize the influence of any local kinks
+and turns. Sample lines are located at, and either side of, the mid-point of
+each input feature. At each sampling line, a sample point is located where
+the line intersects the back-burning line, then further points are placed
+along the line at uniform spacing. In cases where a back-burning line is
+curved or convoluted it is possible for sampling lines from one section to
+approach or cross other sections. Setting the argument
+\code{increasing_distance} to \code{TRUE} (the default) will test for such
+cases and prune sampling lines as required. This can result in different
+numbers of sample points per line being returned.
 }
 \details{
 This function calls the non-exported helper function
 \code{make_sample_lines()} to generate the sample lines along which the
-sample points will be placed.
+sample points are placed.
 }
 \examples{
 \dontrun{
@@ -77,13 +99,16 @@ libary(backburning)
 library(sf)
 
 # Load back-burning line features from a GeoPackage layer, shapefile etc.
-bb <- st_read(...)
+dat_bb <- st_read(...)
 
 # Generate points on sampling lines placed at 1km intervals along each
 # back-burning line. Sampling lines extend 5km either side of the back-burning
 # line and points are placed every 500m.
 #
-bb_pts <- make_sample_points(bb, line_spacing = 1000, line_half_length = 5000, point_spacing = 500)
+dat_sample_points <- make_sample_points(bb,
+                                        line_spacing = 1000,
+                                        line_half_length = 5000,
+                                        point_spacing = 500)
 }
 
 }

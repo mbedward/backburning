@@ -1,22 +1,23 @@
-#' Generate linear sample points either side of back-burning line features
+#' Generate lines of sample points across back-burning line features
 #'
 #' Given a set of input line features representing back-burning lines, this
-#' function places sampling lines at regular intervals along each input feature
-#' and then generates uniformly spaced points along each sampling line. Each
-#' sampling line is placed perpendicular to the local angle of the back-burning
-#' line. Local angles are determined from a smoothed version of the back-burning
-#' line to minimize the influence of any local kinks and turns. At each sampling
-#' line, a sample point is located where the line intersects the back-burning
-#' line, then further points are placed along the line with uniform spacing. In
-#' cases where a back-burning line is curved or convoluted it is possible for
-#' sampling lines from one section to approach or cross other sections. Setting
-#' the argument \code{increasing_distance} to \code{TRUE} (the default) will
-#' test for such cases and prune sampling lines as required. However, this can
-#' result in different numbers of sample points per line being returned.
+#' function places sample lines at regular intervals along each input feature,
+#' perpendicular to the local feature angle, and then generates uniformly spaced
+#' points along each sample line. Local angles are determined from a smoothed
+#' version of the back-burning line to minimize the influence of any local kinks
+#' and turns. Sample lines are located at, and either side of, the mid-point of
+#' each input feature. At each sampling line, a sample point is located where
+#' the line intersects the back-burning line, then further points are placed
+#' along the line at uniform spacing. In cases where a back-burning line is
+#' curved or convoluted it is possible for sampling lines from one section to
+#' approach or cross other sections. Setting the argument
+#' \code{increasing_distance} to \code{TRUE} (the default) will test for such
+#' cases and prune sampling lines as required. This can result in different
+#' numbers of sample points per line being returned.
 #'
 #' This function calls the non-exported helper function
 #' \code{make_sample_lines()} to generate the sample lines along which the
-#' sample points will be placed.
+#' sample points are placed.
 #'
 #' @param bb_lines An \code{sf} spatial data frame containing one or more line
 #'   features representing back-burning lines. The data must have a coordinate
@@ -49,9 +50,30 @@
 #'   Gaussian kernel filter used to smooth each back-burning feature. The
 #'   default value of 1000m seems to give good results.
 #'
-#' @return An \code{sf} spatial data frame containing the sampling lines. Each
-#'   line is represented by a pair of features on either side of the
-#'   back-burning line.
+#' @return An \code{sf} spatial data frame of sample point features with the
+#'   following columns:
+#'
+#'   \code{refid} Identifier of the input back-burning line feature that a point
+#'   is sampling, with values taken from the input data column specified by the
+#'   \code{bb_id} argument.
+#'
+#'   \code{index} Integer index (from 1) of the perpendicular sample line on
+#'   which the point was positioned.
+#'
+#'   \code{segment} One of \code{'X'} (point at intersection with back-burning
+#'   line); \code{'L'} (point on left of line); \code{'R'} (point on right of
+#'   line). Note that left and right are relative to the digitizing direction
+#'   (i.e. order of vertices) of the back-burning line.
+#'
+#'   \code{linedist} Distance of the point along the sample line segment on
+#'   which it was positioned, relative to the reference back-burning line.
+#'
+#'   \code{refdist} Shortest distance from the point to the reference
+#'   back-burning line. This can be less than \code{linedist} when the reference
+#'   line is wiggly.
+#'
+#'   \code{geom} Point geometry, projected in the same coordinate reference
+#'   system as the input line features.
 #'
 #' @examples
 #' \dontrun{
@@ -59,13 +81,16 @@
 #' library(sf)
 #'
 #' # Load back-burning line features from a GeoPackage layer, shapefile etc.
-#' bb <- st_read(...)
+#' dat_bb <- st_read(...)
 #'
 #' # Generate points on sampling lines placed at 1km intervals along each
 #' # back-burning line. Sampling lines extend 5km either side of the back-burning
 #' # line and points are placed every 500m.
 #' #
-#' bb_pts <- make_sample_points(bb, line_spacing = 1000, line_half_length = 5000, point_spacing = 500)
+#' dat_sample_points <- make_sample_points(bb,
+#'                                         line_spacing = 1000,
+#'                                         line_half_length = 5000,
+#'                                         point_spacing = 500)
 #' }
 #'
 #' @export
@@ -84,6 +109,13 @@ make_sample_points <- function(bb_lines,
   checkmate::assert_number(point_spacing, lower = 1, finite = TRUE)
   checkmate::assert_flag(increasing_distance)
 
+  # Point spacing must not be more than line segment length
+  if (point_spacing > line_half_length) {
+    msg <- glue::glue("The value of line_half_length ({line_half_length}) is not large \\
+                       enough for the requested point spacing ({point_spacing})")
+    stop(msg)
+  }
+
   # Generate sample lines (this step will also check other argument values)
   #
   dat_sample_lines <- make_sample_lines(bb_lines,
@@ -98,8 +130,7 @@ make_sample_points <- function(bb_lines,
   # segment.
   #
   # Point positions expressed as fractions of line segment length
-  seg_len <- attr(dat_sample_lines, "segment_length")
-  dpos <- seq(0, 1, point_spacing / seg_len)
+  dpos <- seq(0.0, 1.0, point_spacing / line_half_length)
 
   # This will return a geometry list of MULTIPOINT objects: one per line segment
   gpoints <- sf::st_line_sample(dat_sample_lines, sample = dpos)
@@ -110,40 +141,81 @@ make_sample_points <- function(bb_lines,
 
   # Convert from multi-point to single point features
   dat_points <- suppressWarnings({
-    st_cast(dat_points, "POINT")
+    sf::st_cast(dat_points, "POINT")
   })
 
   # For the point where each pair of sample line segments intersect
   # the back-burning line feature, drop the duplicate record and
-  # label the remaining record as 'X'
+  # label the remaining record as 'X'. Also add 'linedist' values.
+  #
   dat_points <- dat_points %>%
-    dplyr::group_by(across(all_of(c(bb_id, 'index', 'segment')))) %>% # Truly horrible syntax but it seems to work...
-    dplyr::mutate(point_index = dplyr::row_number()) %>%
-    dplyr::ungroup() %>%
+    dplyr::group_by(across(c(refid, index, segment))) %>% # Truly horrible syntax but it seems to work...
 
-    dplyr::filter(segment == 'R' | point_index > 1) %>%
-    dplyr::mutate(segment = ifelse(point_index == 1, "X", segment)) %>%
+    dplyr::mutate(point_index = dplyr::row_number(),
+                  linedist = (point_index-1) * point_spacing) %>%
+
+    dplyr::ungroup() %>%
     dplyr::select(-point_index)
 
-  # Calculate the distance of each point from its reference back-burning line
+  # Calculate the shortest distance of each point from its reference back-burning line
   IDs <- unique(bb_lines[[bb_id]])
   dat_points_dist <- lapply(IDs, function(id) {
     ibb <- which(bb_lines[[bb_id]] == id)
-    ip <- which(dat_points[[bb_id]] == id)
+    ip <- which(dat_points$refid == id)
     d <- as.numeric( sf::st_distance(dat_points[ip, ], bb_lines[ibb, ]) )
     d <- zapsmall(d)
-    cbind(dat_points[ip, ], distance = d)
+    cbind(dat_points[ip, ], refdist = d)
   })
 
-  do.call(rbind, dat_points_dist)
+  dat_points <- do.call(rbind, dat_points_dist)
+
+  # Filter points on each sample line segment to enforce increasing distance
+  # from the reference back-burning line
+  if (increasing_distance) {
+    # Function to check point distances
+    fn_flag <- function(d) {
+      n <- length(d)
+      ok <- rep(TRUE, n)
+
+      if (n > 1) {
+        dd <- diff(d)
+        ok <- c(TRUE, dd > 0)
+        x <- which(!ok)
+        if (length(x) > 0) ok[min(x):n] <- FALSE
+      }
+
+      ok
+    }
+
+    dat_points <- dat_points %>%
+      dplyr::group_by(across(c(refid, index, segment))) %>%
+
+      dplyr::mutate(keep = fn_flag(refdist)) %>%
+
+      dplyr::ungroup() %>%
+
+      dplyr::filter(keep) %>%
+      dplyr::select(-keep)
+  }
+
+  # Label intersection points (linedist == 0) and discard duplicate
+  # within each line index
+  ii <- with(dat_points, which(segment == 'R' & linedist == 0))
+  dat_points$segment[ii] <- 'X'
+
+  ii <- with(dat_points, which(segment == 'L' & linedist == 0))
+  dat_points <- dat_points[-ii, ]
+
+  # Return points
+  dat_points
 }
 
 
-#' Private helper function to generate sampling lines along back-burning line features
+#' Private helper function to generate sample lines along back-burning line features
 #'
 #' This is a helper function called by \code{make_sample_points()}. Given a set
 #' of input line features representing back-burning lines, this function places
-#' sampling lines at regular intervals along each input feature. Each sampling
+#' sample lines at regular intervals along each input feature. Each sampling
 #' line is placed perpendicular to the local angle of the back-burning line.
 #' Local angles are determined from a smoothed version of the back-burning line
 #' to minimize the influence of any local kinks and turns.
@@ -158,24 +230,33 @@ make_sample_points <- function(bb_lines,
 #'   features.
 #'
 #' @param line_spacing A single numeric value for the distance in metres
-#'   between sampling lines along each back-burning line feature.
+#'   between sample lines along each back-burning line feature.
 #'
 #' @param line_half_length A single numeric value specifying the maximum
-#'   distance in metres that a sampling line will extend on either side of the
+#'   distance in metres that a sample line will extend on either side of the
 #'   back-burning line.
 #'
 #' @param smoothing_bw A single numeric value for the bandwidth (metres) of the
 #'   Gaussian kernel filter used to smooth each back-burning feature. The
 #'   default value of 1000m seems to give good results.
 #'
-#' @return An \code{sf} spatial data frame containing the sampling lines. Each
-#'   line is represented by a pair of segments, one on either side of the
-#'   back-burning line. Segments are labelled as \code{'L'} (left) and
-#'   \code{'R'} (right) in the \code{'segment'} column. These labels are
-#'   relative to the order of vertices (i.e. digitizing direction) of the
-#'   back-burning line. Data frame columns are: back-burning line ID (name is
-#'   the value of the \code{bb_id} argument); index (integer ID for each
-#'   sample line); segment; geom.
+#' @return An \code{sf} spatial data frame of sample line features with the
+#'   following columns:
+#'
+#'   \code{refid} Identifier of the input back-burning line feature on which the
+#'   sample line is positioned, with values taken from the input data column
+#'   specified by the \code{bb_id} argument.
+#'
+#'   \code{index} Integer index (from 1) of the perpendicular sample line on
+#'   which the point was positioned.
+#'
+#'   \code{segment} One of \code{'L'} (sample line extending left from the
+#'   reference line); \code{'R'} (sample line extending right from the reference
+#'   line). Note that left and right are relative to the digitizing direction
+#'   (i.e. order of vertices) of the back-burning line.
+#'
+#'   \code{geom} Line geometry, projected in the same coordinate reference
+#'   system as the input line features.
 #'
 #' @seealso [make_sample_points()]
 #'
@@ -291,23 +372,18 @@ make_sample_lines <- function(bb_lines,
       # Geom list with the two line segments, labelled 'R' (right) and
       # 'L' (left) relative to the order of vertices of the target feature
       segments <- sf::st_sfc(left_seg, right_seg, crs = CRS)
-      sf::st_sf(featureid__ = FeatureID, index = istep, segment = c('R', 'L'), geom = segments)
+      sf::st_sf(refid = FeatureID, index = istep, segment = c('R', 'L'), geom = segments)
     })
 
     do.call(rbind, sample_lines)
   })
 
-  # Combine sets of sampling lines into a single sf data frame
+  # Combine sets of sample lines into a single sf data frame
   res <- do.call(rbind, res)
 
-  # Rename feature ID column
-  # (for client code use)
-  k <- which(colnames(res) == "featureid__")
-  colnames(res)[k] <- bb_id
-
   # Attributes for client code use
-  attr(res, "bb_id") <- bb_id
-  attr(res, "segment_length") <- line_half_length
+  attr(res, "line_spacing") <- line_spacing
+  attr(res, "line_half_length") <- line_half_length
 
   # Return sample lines
   res

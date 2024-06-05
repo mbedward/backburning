@@ -1,8 +1,8 @@
 Package: backburning
 Type: Package
 Title: Functions for analysis of back-burning data
-Version: 0.1.2
-Date: 2024-06-04
+Version: 0.1.3
+Date: 2024-06-05
 Description: Functions to extract and classify data from back-burning and fire 
     progression data.
 Authors@R: c(
@@ -20,6 +20,7 @@ Encoding: UTF-8
 LazyData: true
 Imports: 
     checkmate (>= 2.3.1),
+    glue,
     magrittr,
     sf (>= 1.0-16),
     smoothr (>= 1.0.1)
