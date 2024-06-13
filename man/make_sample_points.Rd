@@ -10,7 +10,7 @@ make_sample_points(
   line_spacing,
   line_half_length,
   point_spacing,
-  increasing_distance = TRUE,
+  increasing_distance = c("all", "parent", "none"),
   smoothing_bw = 1000
 )
 }
@@ -36,11 +36,12 @@ between sample points along each sampling line. The first point is always
 positioned at the intersection of the sampling line and the reference
 back-burning line.}
 
-\item{increasing_distance}{(logical) If \code{TRUE} (default), there must
-always be an increasing distance to the reference back-burning line along
-the length of each sampling line. A sampling lines will be truncated if
-necessary to avoid approaching or crossing another section of the
-back-burning line.}
+\item{increasing_distance}{(character) One of \code{('all', 'parent',
+'none')}. May be abbreviated. If \code{'all'} (default), each sample point
+must lie at a greater distance to all back-burning lines than the preceding
+point; if \code{'parent'}, a similar increasing distance rule is applied
+but only in relation to the parent back-burning line that the sample points
+are associated with; if \code{'none'}, no distance rule applies.}
 
 \item{smoothing_bw}{A single numeric value for the bandwidth (metres) of the
 Gaussian kernel filter used to smooth each back-burning feature. The
@@ -62,12 +63,16 @@ An \code{sf} spatial data frame of sample point features with the
   line). Note that left and right are relative to the digitizing direction
   (i.e. order of vertices) of the back-burning line.
 
-  \code{linedist} Distance of the point along the sample line segment on
-  which it was positioned, relative to the reference back-burning line.
+  \code{dist_line} Distance of the point along the sample line segment on
+  which it was positioned, relative to the parent back-burning line.
 
-  \code{refdist} Shortest distance from the point to the reference
-  back-burning line. This can be less than \code{linedist} when the reference
+  \code{dist_parent} Shortest distance from the point to the parent
+  back-burning line. This can be less than \code{dist_line} if the parent
   line is wiggly.
+
+  \code{dist_all} Shortest distance from the point to \strong{any}
+  back-burning line. This column will only be present if the argument
+  \code{increasing_distance == 'all'}.
 
   \code{geom} Point geometry, projected in the same coordinate reference
   system as the input line features.

@@ -40,11 +40,12 @@
 #'   positioned at the intersection of the sampling line and the reference
 #'   back-burning line.
 #'
-#' @param increasing_distance (logical) If \code{TRUE} (default), there must
-#'   always be an increasing distance to the reference back-burning line along
-#'   the length of each sampling line. A sampling lines will be truncated if
-#'   necessary to avoid approaching or crossing another section of the
-#'   back-burning line.
+#' @param increasing_distance (character) One of \code{('all', 'parent',
+#'   'none')}. May be abbreviated. If \code{'all'} (default), each sample point
+#'   must lie at a greater distance to all back-burning lines than the preceding
+#'   point; if \code{'parent'}, a similar increasing distance rule is applied
+#'   but only in relation to the parent back-burning line that the sample points
+#'   are associated with; if \code{'none'}, no distance rule applies.
 #'
 #' @param smoothing_bw A single numeric value for the bandwidth (metres) of the
 #'   Gaussian kernel filter used to smooth each back-burning feature. The
@@ -65,12 +66,16 @@
 #'   line). Note that left and right are relative to the digitizing direction
 #'   (i.e. order of vertices) of the back-burning line.
 #'
-#'   \code{linedist} Distance of the point along the sample line segment on
-#'   which it was positioned, relative to the reference back-burning line.
+#'   \code{dist_line} Distance of the point along the sample line segment on
+#'   which it was positioned, relative to the parent back-burning line.
 #'
-#'   \code{refdist} Shortest distance from the point to the reference
-#'   back-burning line. This can be less than \code{linedist} when the reference
+#'   \code{dist_parent} Shortest distance from the point to the parent
+#'   back-burning line. This can be less than \code{dist_line} if the parent
 #'   line is wiggly.
+#'
+#'   \code{dist_all} Shortest distance from the point to \strong{any}
+#'   back-burning line. This column will only be present if the argument
+#'   \code{increasing_distance == 'all'}.
 #'
 #'   \code{geom} Point geometry, projected in the same coordinate reference
 #'   system as the input line features.
@@ -100,14 +105,16 @@ make_sample_points <- function(bb_lines,
                                line_spacing,
                                line_half_length,
                                point_spacing,
-                               increasing_distance = TRUE,
+                               increasing_distance = c("all", "parent", "none"),
                                smoothing_bw = 1000) {
 
   # Most argument checking will be done by the helper line function.
   # Here we just validate the arguments specific to points.
   #
   checkmate::assert_number(point_spacing, lower = 1, finite = TRUE)
-  checkmate::assert_flag(increasing_distance)
+
+  checkmate::assert_string(increasing_distance)
+  increasing_distance = match.arg(increasing_distance)
 
   # Point spacing must not be more than line segment length
   if (point_spacing > line_half_length) {
@@ -144,66 +151,95 @@ make_sample_points <- function(bb_lines,
     sf::st_cast(dat_points, "POINT")
   })
 
-  # For the point where each pair of sample line segments intersect
-  # the back-burning line feature, drop the duplicate record and
-  # label the remaining record as 'X'. Also add 'linedist' values.
-  #
+  # Cumulative distance along the line segment for each point.
   dat_points <- dat_points %>%
     dplyr::group_by(across(c(refid, index, segment))) %>% # Truly horrible syntax but it seems to work...
 
     dplyr::mutate(point_index = dplyr::row_number(),
-                  linedist = (point_index-1) * point_spacing) %>%
+                  dist_line = (point_index-1) * point_spacing) %>%
 
     dplyr::ungroup() %>%
     dplyr::select(-point_index)
 
-  # Calculate the shortest distance of each point from its reference back-burning line
-  IDs <- unique(bb_lines[[bb_id]])
-  dat_points_dist <- lapply(IDs, function(id) {
-    ibb <- which(bb_lines[[bb_id]] == id)
-    ip <- which(dat_points$refid == id)
-    d <- as.numeric( sf::st_distance(dat_points[ip, ], bb_lines[ibb, ]) )
-    d <- zapsmall(d)
-    cbind(dat_points[ip, ], refdist = d)
-  })
+  # Shortest distance of each point to the parent back-burning line.
+  # This can be less than 'dist_line' (calculated above) if the parent line
+  # is wiggly.
+  dat_points$dist_parent <- NA_real_
+  for (xid in unique(bb_lines[[bb_id]])) {
+    ibb <- bb_lines[[bb_id]] == xid
+    ipoints <- dat_points$refid == xid
+    dat_points$dist_parent[ipoints] <- as.numeric( sf::st_distance(dat_points[ipoints, ], bb_lines[ibb, ]) )
+  }
 
-  dat_points <- do.call(rbind, dat_points_dist)
+  dat_points$dist_parent <- zapsmall(dat_points$dist_parent)
 
-  # Filter points on each sample line segment to enforce increasing distance
-  # from the reference back-burning line
-  if (increasing_distance) {
-    # Function to check point distances
-    fn_flag <- function(d) {
+  # Shortest distance to *any* back-burning line (i.e. not just the parent)
+  # required if filtering points on all distances.
+  #
+  if (increasing_distance == 'all') {
+    dat_points$dist_all <- NA_real_
+
+    for (xid in unique(bb_lines[[bb_id]])) {
+      ibb <- bb_lines[[bb_id]] == xid
+      ipoints <- dat_points$refid == xid
+
+      # Find any other lines that are close enough to the parent line to
+      # be relevant for point distances (trying to reduce run time)
+      #
+      xbuf <- sf::st_buffer(bb_lines[ibb, ], dist = 2 * line_half_length)
+      xi <- which( lengths(sf::st_intersects(bb_lines, xbuf)) > 0)
+
+      d <- sf::st_distance(dat_points[ipoints, ], bb_lines[xi, ])  # matrix where ncol = number of relevant bb lines
+      d <- apply(d, MARGIN = 1, min)
+      dat_points$dist_all[ipoints] <- as.numeric(d)
+    }
+
+    dat_points$dist_all <- zapsmall(dat_points$dist_all)
+  }
+
+  # If a point distance filter is requested filter points on each sample line
+  # segment to ensure that the nearest distance to either the reference
+  # back-burning line (increasing_distance == 'parent') or all back-burning
+  # lines (increasing_distance == 'all') for each point is greater than for the
+  # preceding point as we proceed along the segment.
+  #
+  if (increasing_distance != 'none') {
+    # Function to check the distance values of points along an individual sample
+    # line segment. Returns a logical vector indicating which points to keep.
+    fn_keep <- function(d) {
       n <- length(d)
-      ok <- rep(TRUE, n)
 
-      if (n > 1) {
-        dd <- diff(d)
-        ok <- c(TRUE, dd > 0)
-        x <- which(!ok)
-        if (length(x) > 0) ok[min(x):n] <- FALSE
-      }
+      delta <- diff(d)
+      ok <- c(TRUE, delta > 0)  # will work even if length(d) < 2 so no deltas
+      x <- which(!ok)
+      if (length(x) > 0) ok[min(x):n] <- FALSE
 
       ok
     }
 
     dat_points <- dat_points %>%
-      dplyr::group_by(across(c(refid, index, segment))) %>%
+      dplyr::group_by(across(c(refid, index, segment)))
 
-      dplyr::mutate(keep = fn_flag(refdist)) %>%
+    if (increasing_distance == 'parent') {
+      # Filter on values of distance to parent feature
+      dat_points <- dplyr::mutate(dat_points, keep = fn_keep(dist_parent))
+    } else {
+      # Filter on values of distance to any feature
+      dat_points <- dplyr::mutate(dat_points, keep = fn_keep(dist_all))
+    }
 
+    dat_points <- dat_points %>%
       dplyr::ungroup() %>%
-
       dplyr::filter(keep) %>%
       dplyr::select(-keep)
   }
 
-  # Label intersection points (linedist == 0) and discard duplicate
+  # Label intersection points (dist_line == 0) and discard duplicate
   # within each line index
-  ii <- with(dat_points, which(segment == 'R' & linedist == 0))
+  ii <- with(dat_points, which(segment == 'R' & dist_line == 0))
   dat_points$segment[ii] <- 'X'
 
-  ii <- with(dat_points, which(segment == 'L' & linedist == 0))
+  ii <- with(dat_points, which(segment == 'L' & dist_line == 0))
   dat_points <- dat_points[-ii, ]
 
   # Return points
@@ -279,6 +315,13 @@ make_sample_lines <- function(bb_lines,
   checkmate::assert_string(bb_id, min.chars = 1)
   if (!bb_id %in% colnames(bb_lines)) {
     msg <- glue::glue("The value of argument bb_id {bb_id} is not a column in the input line features data frame")
+    stop(msg)
+  }
+
+  # Line IDs must be unique
+  num_ids <- length(unique(bb_lines[[bb_id]]))
+  if (num_ids != nrow(bb_lines)) {
+    msg <- glue::glue("The values of the specified ID column {bb_id} are not all unique")
     stop(msg)
   }
 
