@@ -1,8 +1,8 @@
 Package: backburning
 Type: Package
 Title: Functions for analysis of back-burning data
-Version: 0.1.4
-Date: 2024-06-14
+Version: 0.1.5
+Date: 2024-06-17
 Description: Functions to extract and classify data from back-burning and fire 
     progression data.
 Authors@R: c(

@@ -43,9 +43,10 @@
 #' @param increasing_distance (character) One of \code{('all', 'parent',
 #'   'none')}. May be abbreviated. If \code{'all'} (default), each sample point
 #'   must lie at a greater distance to all back-burning lines than the preceding
-#'   point; if \code{'parent'}, a similar increasing distance rule is applied
-#'   but only in relation to the parent back-burning line that the sample points
-#'   are associated with; if \code{'none'}, no distance rule applies.
+#'   point AND must be closer to the parent back-burning line than any other; if
+#'   \code{'parent'}, a similar increasing distance rule is applied but only in
+#'   relation to the parent back-burning line that the sample points are
+#'   associated with; if \code{'none'}, no distance rule applies.
 #'
 #' @param smoothing_bw A single numeric value for the bandwidth (metres) of the
 #'   Gaussian kernel filter used to smooth each back-burning feature. The
@@ -206,15 +207,23 @@ make_sample_points <- function(bb_lines,
   if (increasing_distance != 'none') {
     # Function to check the distance values of points along an individual sample
     # line segment. Returns a logical vector indicating which points to keep.
-    fn_keep <- function(d) {
-      n <- length(d)
+    # Either considers just the distance to the parent feature (if dall is NULL)
+    # or the distance to both parent and other features (if dall is not NULL)
+    #
+    fn_keep <- function(dparent, dall = NULL) {
+      n <- length(dparent)
+      delta_parent <- diff(dparent)
+      keep <- c(TRUE, delta_parent > 0)  # will work even if length(d) < 2 so no deltas
 
-      delta <- diff(d)
-      ok <- c(TRUE, delta > 0)  # will work even if length(d) < 2 so no deltas
-      x <- which(!ok)
-      if (length(x) > 0) ok[min(x):n] <- FALSE
+      if (!is.null(dall)) {  # considering both distance to parent and other features
+        delta_all <- diff(dall)
+        keep <- keep & c(TRUE, delta_all > 0) & dall >= dparent
+      }
 
-      ok
+      x <- which(!keep)
+      if (length(x) > 0) keep[min(x):n] <- FALSE
+
+      keep
     }
 
     dat_points <- dat_points %>%
@@ -225,7 +234,7 @@ make_sample_points <- function(bb_lines,
       dat_points <- dplyr::mutate(dat_points, keep = fn_keep(dist_parent))
     } else {
       # Filter on values of distance to any feature
-      dat_points <- dplyr::mutate(dat_points, keep = fn_keep(dist_all))
+      dat_points <- dplyr::mutate(dat_points, keep = fn_keep(dist_parent, dist_all))
     }
 
     dat_points <- dat_points %>%

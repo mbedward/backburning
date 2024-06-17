@@ -39,9 +39,10 @@ back-burning line.}
 \item{increasing_distance}{(character) One of \code{('all', 'parent',
 'none')}. May be abbreviated. If \code{'all'} (default), each sample point
 must lie at a greater distance to all back-burning lines than the preceding
-point; if \code{'parent'}, a similar increasing distance rule is applied
-but only in relation to the parent back-burning line that the sample points
-are associated with; if \code{'none'}, no distance rule applies.}
+point AND must be closer to the parent back-burning line than any other; if
+\code{'parent'}, a similar increasing distance rule is applied but only in
+relation to the parent back-burning line that the sample points are
+associated with; if \code{'none'}, no distance rule applies.}
 
 \item{smoothing_bw}{A single numeric value for the bandwidth (metres) of the
 Gaussian kernel filter used to smooth each back-burning feature. The
