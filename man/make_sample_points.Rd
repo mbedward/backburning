@@ -56,8 +56,8 @@ An \code{sf} spatial data frame of sample point features with the
   is sampling, with values taken from the input data column specified by the
   \code{bb_id} argument.
 
-  \code{index} Integer index (from 1) of the perpendicular sample line on
-  which the point was positioned.
+  \code{line_index} Integer index (from 1) of the perpendicular sample line
+  on which the point was positioned.
 
   \code{segment} One of \code{'X'} (point at intersection with back-burning
   line); \code{'L'} (point on left of line); \code{'R'} (point on right of

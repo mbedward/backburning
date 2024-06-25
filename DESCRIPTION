@@ -1,15 +1,14 @@
 Package: backburning
 Type: Package
 Title: Functions for analysis of back-burning data
-Version: 0.1.5
-Date: 2024-06-17
+Version: 0.1.6
+Date: 2024-06-26
 Description: Functions to extract and classify data from back-burning and fire 
     progression data.
 Authors@R: c(
     person("Michael", "Bedward", email = "mbedward@uow.edu.au", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0002-9986-1286")),
     person("Owen", "Price", email = "oprice@uow.edu.au", role = "aut"),
-    person("Michael", "Storey", email = "mstorey@uow.edu.au", role = "aut"),
     person("Michael", "Storey", email = "mstorey@uow.edu.au", role = "aut"),
     person("Maximilien", "Desservettaz", email = "mdesserv@uow.edu.au", role = "aut"))
 License: MIT + file LICENSE
