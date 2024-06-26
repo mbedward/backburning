@@ -35,7 +35,7 @@
 #' # the date-time value for each sample point
 #' dat_prog <- st_read("path/to/progressions")
 #'
-#' dat_pts <- get_progression_times(prog, pts, prog_datetime = "date")
+#' dat_pts <- get_progression_times(dat_prog, dat_pts, prog_datetime = "LASTTIME")
 #' }
 #'
 #' @export
