@@ -1,9 +1,3 @@
-An R package providing functions to sample spatial data for fire progressions and back-burning. Being developed for use by researchers in the Centre for Environmental Risk Management of Bushfires, University of Wollongong, Australia.
+An R package providing functions to sample spatial data for fire progressions and back-burning. 
 
-To install the package from R / RStudio:
-```
-# Install the remotes package if necessary
-# install.packages("remotes")
-
-remotes::install_github("mbedward/backburning")
-```
+Note: Functions from this package have now been merged into the [CERMButils package](https://github.com/mbedward/CERMButils). This repository will disappear soon.
